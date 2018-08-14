@@ -3,7 +3,7 @@ const supertest = require('supertest');
 const express = require('express');
 const Agenda = require('agenda');
 
-const agenda = new Agenda().database('mongodb://127.0.0.1/agendash-test-db', 'agendash-test-collection');
+const agenda = new Agenda().database('mongodb://admin:HuXlDylODkr0PeZW@cluster0-shard-00-00-ry9ye.mongodb.net:27017,cluster0-shard-00-01-ry9ye.mongodb.net:27017,cluster0-shard-00-02-ry9ye.mongodb.net:27017/agendash-test-db?ssl=true&replicaSet=Cluster0-shard-0&authSource=admin', 'agendash-test-collection');
 
 const app = express();
 app.use('/', require('./app')(agenda));
@@ -17,7 +17,11 @@ test.before.cb(t => {
 });
 
 test.beforeEach(async () => {
-  await agenda._collection.deleteMany({}, null);
+  await agenda._collection.deleteMany({});
+});
+
+test.afterEach(async () => {
+  await agenda._collection.deleteMany({});
 });
 
 test.serial('GET /api with no jobs should return the correct overview', async t => {
@@ -39,7 +43,7 @@ test.serial('POST /api/jobs/create should confirm the job exists', async t => {
 
   t.true('created' in res.body);
 
-  agenda._collection.count({}, null, (err, res) => {
+  agenda._collection.countDocuments({}, {}, (err, res) => {
     t.ifError(err);
     if (res !== 1) {
       throw new Error('Expected one document in database');
@@ -51,10 +55,11 @@ test.serial('POST /api/jobs/delete should delete the job', async t => {
   const job = await new Promise(resolve => {
     agenda.create('Test Job', {})
     .schedule('in 4 minutes')
-    .save(async (err, job) => {
-      t.ifError(err);
-      return resolve(job);
-    });
+    .save()
+    .then(
+      job => resolve(job),
+      err => t.ifError(err)
+    );
   });
 
   const res = await request.post('/api/jobs/delete')
@@ -65,18 +70,21 @@ test.serial('POST /api/jobs/delete should delete the job', async t => {
 
   t.true('deleted' in res.body);
 
-  const count = await agenda._collection.count({}, null);
-  t.is(count, 0);
+  agenda._collection.countDocuments({}, {}, (err, res) => {
+    t.ifError(err);
+    t.is(res, 0);
+  });
 });
 
 test.serial('POST /api/jobs/requeue should requeue the job', async t => {
   const job = await new Promise(resolve => {
     agenda.create('Test Job', {})
     .schedule('in 4 minutes')
-    .save(async (err, job) => {
-      t.ifError(err);
-      return resolve(job);
-    });
+    .save()
+    .then(
+      job => resolve(job),
+      err => t.ifError(err)
+    );
   });
 
   const res = await request.post('/api/jobs/requeue')
@@ -87,6 +95,8 @@ test.serial('POST /api/jobs/requeue should requeue the job', async t => {
 
   t.false('newJobs' in res.body);
 
-  const count = await agenda._collection.count({}, null);
-  t.is(count, 2);
+  agenda._collection.countDocuments({}, {}, (err, res) => {
+    t.ifError(err);
+    t.is(res, 2);
+  });
 });
